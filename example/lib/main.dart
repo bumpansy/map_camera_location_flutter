@@ -14,17 +14,16 @@ class MyApp extends StatelessWidget {
   final CameraDescription camera;
   const MyApp({super.key, required this.camera});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'High-Quality Camera with Location',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
       home: MyHomePage(
-        title: 'Camera With Map Location',
+        title: 'High-Quality Camera with Location',
         camera: camera,
       ),
     );
@@ -34,7 +33,6 @@ class MyApp extends StatelessWidget {
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title, required this.camera});
   final CameraDescription camera;
-
   final String title;
 
   @override
@@ -43,27 +41,26 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   @override
-  void initState() {
-    // TODO: implement initState
-    super.initState();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
-        appBar: AppBar(
-          backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-          title: Text(widget.title),
-        ),
-        body: MapCameraLocation(
-          camera: widget.camera,
-          onImageCaptured: (ImageAndLocationData data) {
-            print('Captured image path: ${data.imagePath}');
-            print('Latitude: ${data.latitude}');
-            print('Longitude: ${data.longitude}');
-            print('Location name: ${data.locationName}');
-            print('Sublocation: ${data.subLocation}');
-          },
-        ));
+      appBar: AppBar(
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        title: Text(widget.title),
+      ),
+      body: MapCameraLocation(
+        camera: widget.camera,
+        onImageCaptured: (ImageAndLocationData data) {
+          // Handle the captured high-quality image and location data
+          print('Captured high-quality image path: ${data.imagePath}');
+          print('Latitude: ${data.latitude}');
+          print('Longitude: ${data.longitude}');
+          print('Location name: ${data.locationName}');
+          print('Sublocation: ${data.subLocation}');
+          
+          // You can now use this high-quality image for OCR, document processing, etc.
+          // The image will have clear, readable text with location data overlaid
+        },
+      ),
+    );
   }
 }

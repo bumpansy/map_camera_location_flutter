@@ -1,53 +1,15 @@
 import 'package:geolocator/geolocator.dart';
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart' hide TextDirection;
+import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
-import 'package:latlong2/latlong.dart' as lat;
-import 'package:map_camera_flutter/map_camera_flutter.dart';
-
-///import 'package:your_app/map_camera_flutter.dart'; // Import the file where the MapCameraLocation widget is defined
-
-/// ```
-/// void main() {
-/// final cameras = await availableCameras();
-/// final firstCamera = cameras.first;
-///   runApp(MyApp(camera: firstCamera));
-/// }
-///
-/// class MyApp extends StatelessWidget {
-/// final CameraDescription camera;
-/// const MyApp({super.key, required this.camera});
-///
-///   @override
-///   Widget build(BuildContext context) {
-///     return MaterialApp(
-///       home: CameraLocationScreen(camera: firstCamera),
-///     );
-///   }
-/// }
-///
-/// class CameraLocationScreen extends StatelessWidget {
-/// final CameraDescription camera;
-/// const MyApp({super.key, required this.camera});
-//   // Callback function to handle the captured image and location data
-///   void handleImageAndLocationData(ImageAndLocationData data) {
-//     // You can use the data here as needed
-///     print('Image Path: ${data.imagePath}');
-///     print('Latitude: ${data.latitude}');
-///     print('Longitude: ${data.longitude}');
-///     print('Location Name: ${data.locationName}');
-///     print('SubLocation: ${data.subLocation}');
-///   }
-///
-///   @override
-///   Widget build(BuildContext context) {
-///     // Provide the CameraDescription and the handleImageAndLocationData callback function to the MapCameraLocation widget
-///     return MapCameraLocation(
-///       camera: camera, // YOUR_CAMERA_DESCRIPTION_OBJECT, // Replace YOUR_CAMERA_DESCRIPTION_OBJECT with your actual CameraDescription
-///       onImageCaptured: handleImageAndLocationData,
-///     );
-///   }
-/// }
-/// ```
+import 'dart:async';
+import 'package:path_provider/path_provider.dart';
+import 'package:camera/camera.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:geocoding/geocoding.dart';
+import 'image_and_location_data.dart';
 
 // Callback function type for capturing image and location data
 typedef ImageAndLocationCallback = void Function(ImageAndLocationData data);
@@ -60,8 +22,11 @@ class MapCameraLocation extends StatefulWidget {
   ///
   /// The [camera] parameter is required and represents the camera to be used for capturing images.
   /// The [onImageCaptured] parameter is an optional callback function that will be triggered when an image and location data are captured.
-  const MapCameraLocation(
-      {super.key, required this.camera, this.onImageCaptured});
+  const MapCameraLocation({
+    super.key, 
+    required this.camera, 
+    this.onImageCaptured
+  });
 
   @override
   State<MapCameraLocation> createState() => _MapCameraLocationState();
@@ -69,71 +34,33 @@ class MapCameraLocation extends StatefulWidget {
 
 class _MapCameraLocationState extends State<MapCameraLocation> {
   late CameraController _controller;
-
-  /// Represents a controller for the camera, used to control camera-related operations.
-
   late Future<void> _initializeControllerFuture;
-
-  /// Represents a future that resolves when the camera controller has finished initializing.
-
-  late AlignOnUpdate _followOnLocationUpdate;
-
-  /// Enum value indicating when to follow location updates.
-
-  late StreamController<double?> _followCurrentLocationStreamController;
-
-  /// Stream controller used to track the current location.
-
+  
   File? cameraImagePath;
-
-  /// File path of the captured camera image.
-
-  File? ssImage;
-
-  /// File path of the captured screen shot image.
-
   String? dateTime;
-
-  /// A formatted string representing the current date and time.
-
-  final globalKey = GlobalKey();
-
-  /// Key used to uniquely identify and control a widget.
-
-  Placemark? placeMark;
-
-  /// Represents geocoded location information.
-
   LocationData? locationData;
-
-  /// SubLocation of the current location as a string.
-
-  /// Callback function to retrieve the image and location data.
-  ImageAndLocationData getImageAndLocationData() {
-    return ImageAndLocationData(
-      imagePath: cameraImagePath?.path,
-      locationData: locationData,
-    );
-  }
+  bool _isCapturing = false;
 
   Timer? _positionTimer;
+
   @override
   void initState() {
     super.initState();
+    
+    // Initialize location updates
     _positionTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
       if (mounted) {
         await updatePosition(context);
       }
     });
 
-    // Initialize the camera controller
+    // Initialize the camera controller with high quality
     _controller = CameraController(
       widget.camera,
-      ResolutionPreset.medium,
+      ResolutionPreset.high, // Use high resolution for better quality
+      enableAudio: false, // Disable audio for faster processing
     );
     _initializeControllerFuture = _controller.initialize();
-    _followOnLocationUpdate = AlignOnUpdate.always;
-    _followCurrentLocationStreamController = StreamController<double?>();
 
     // Get the current date and time in a formatted string
     dateTime = DateFormat.yMd().add_jm().format(DateTime.now());
@@ -142,22 +69,8 @@ class _MapCameraLocationState extends State<MapCameraLocation> {
   @override
   void dispose() {
     _controller.dispose();
-    _followCurrentLocationStreamController.close();
     _positionTimer?.cancel();
     super.dispose();
-  }
-
-  @override
-  void setState(fn) {
-    if (mounted) {
-      super.setState(fn);
-    } else {
-      WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
-        if (mounted) {
-          super.setState(fn);
-        }
-      });
-    }
   }
 
   @override
@@ -169,96 +82,99 @@ class _MapCameraLocationState extends State<MapCameraLocation> {
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.done) {
             return Center(
-              child: RepaintBoundary(
-                key: globalKey,
-                child: Stack(
-                  children: [
-                    CameraPreview(
-                      _controller,
-                    ),
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 10,
+              child: Stack(
+                children: [
+                  // Camera preview
+                  CameraPreview(_controller),
+                  
+                  // Location info overlay (top right)
+                  Positioned(
+                    top: 40,
+                    right: 20,
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.7),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.white, width: 1),
+                      ),
                       child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          SizedBox(
-                            height: 160,
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 8.0),
-                                  child: Card(
-                                    elevation: 3,
-                                    shape: RoundedRectangleBorder(
-                                        borderRadius:
-                                            BorderRadius.circular(8.0)),
-                                    child: SizedBox(
-                                      // height: 130,
-                                      width: 120,
-                                      child: Padding(
-                                        padding: const EdgeInsets.all(5.0),
-                                        child: locationData == null
-                                            ? const Center(
-                                                child:
-                                                    CircularProgressIndicator())
-                                            : FlutterMap(
-                                                options: MapOptions(
-                                                  initialCenter:
-                                                      const lat.LatLng(0, 0),
-                                                  initialZoom: 13.0,
-                                                  onPositionChanged: (position,
-                                                      bool hasGesture) {
-                                                    if (hasGesture) {
-                                                      setState(
-                                                        () =>
-                                                            _followOnLocationUpdate =
-                                                                AlignOnUpdate
-                                                                    .never,
-                                                      );
-                                                    }
-                                                  },
-                                                ),
-                                                children: [
-                                                  TileLayer(
-                                                    urlTemplate:
-                                                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                                                    userAgentPackageName:
-                                                        'com.example.app',
-                                                    minZoom: 12,
-                                                  ),
-                                                  CurrentLocationLayer(
-                                                    alignPositionStream:
-                                                        _followCurrentLocationStreamController
-                                                            .stream,
-                                                    alignPositionOnUpdate:
-                                                        _followOnLocationUpdate,
-                                                  ),
-                                                ],
-                                              ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                Expanded(
-                                  child: LocationDetailsWidget(
-                                      locationData: locationData,
-                                      dateTime: dateTime),
-                                ),
-                                const SizedBox(
-                                  width: 10,
-                                )
-                              ],
+                          Text(
+                            locationData?.locationName ?? "Loading...",
+                            style: const TextStyle(
+                              color: Colors.white, 
+                              fontSize: 14, 
+                              fontWeight: FontWeight.bold
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            "Lat: ${locationData?.latitude ?? "..."}",
+                            style: const TextStyle(
+                              color: Colors.white, 
+                              fontSize: 12
+                            ),
+                          ),
+                          Text(
+                            "Long: ${locationData?.longitude ?? "..."}",
+                            style: const TextStyle(
+                              color: Colors.white, 
+                              fontSize: 12
+                            ),
+                          ),
+                          Text(
+                            dateTime ?? "",
+                            style: const TextStyle(
+                              color: Colors.white, 
+                              fontSize: 12
                             ),
                           ),
                         ],
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                  
+                  // Capture button overlay
+                  Positioned(
+                    bottom: 40,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: GestureDetector(
+                        onTap: _isCapturing ? null : _captureImage,
+                        child: Container(
+                          width: 80,
+                          height: 80,
+                          decoration: BoxDecoration(
+                            color: _isCapturing ? Colors.grey : Colors.white,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.black, width: 3),
+                          ),
+                          child: _isCapturing
+                              ? const Center(
+                                  child: SizedBox(
+                                    width: 30,
+                                    height: 30,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 3,
+                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.black),
+                                    ),
+                                  ),
+                                )
+                              : const Icon(
+                                  Icons.camera_alt,
+                                  size: 40,
+                                  color: Colors.black,
+                                ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             );
           } else {
@@ -266,155 +182,273 @@ class _MapCameraLocationState extends State<MapCameraLocation> {
           }
         },
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () async {
-          try {
-            await _initializeControllerFuture;
-            takeScreenshot();
-          } catch (e) {
-            if (kDebugMode) {
-              print(e);
-            }
-          }
-        },
-        child: const Icon(Icons.camera_alt),
-      ),
     );
   }
 
-  /// Takes a screenshot of the current screen and saves it as an image file.
-  /// Returns the file path of the captured image and triggers the [onImageCaptured]
-  /// callback if provided.
-  /// Throws an exception if there is an error capturing the screenshot.
-  Future<void> takeScreenshot() async {
-    var rng = Random();
+  /// Captures a high-quality image and overlays location data
+  Future<void> _captureImage() async {
+    if (_isCapturing) return;
+    
+    setState(() {
+      _isCapturing = true;
+    });
 
-    // Get the render boundary of the widget
-    final RenderRepaintBoundary boundary =
-        globalKey.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+    try {
+      // Capture the image
+      final XFile image = await _controller.takePicture();
+      
+      if (image.path.isNotEmpty) {
+        // Process the image with location overlay
+        final String processedImagePath = await _addLocationOverlay(image.path);
+        
+        // Update state
+        setState(() {
+          cameraImagePath = File(processedImagePath);
+        });
 
-    // Capture the screen as an image
-    ui.Image image = await boundary.toImage();
-    final directory = (await getApplicationDocumentsDirectory()).path;
-
-    // Convert the image to bytes in PNG format
-    ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-    Uint8List pngBytes = byteData!.buffer.asUint8List();
-
-    // Generate a random file name for the screenshot
-    File imgFile = File('$directory/screenshot${rng.nextInt(200)}.png');
-
-    // Write the bytes to the file
-    await imgFile.writeAsBytes(pngBytes);
-
-    // Check if the file exists
-    bool isExists = imgFile.existsSync();
-
-    if (isExists) {
-      // Set the file path of the captured image
-      setState(() {
-        cameraImagePath = imgFile;
-      });
-
-      // Trigger the image captured callback
-      if (widget.onImageCaptured != null) {
-        ImageAndLocationData data = ImageAndLocationData(
-          imagePath: imgFile.path,
-          locationData: locationData,
-        );
-        widget.onImageCaptured!(data);
+        // Trigger callback
+        if (widget.onImageCaptured != null) {
+          final ImageAndLocationData data = ImageAndLocationData(
+            imagePath: processedImagePath,
+            locationData: locationData,
+          );
+          widget.onImageCaptured!(data);
+        }
       }
-    } else {
-      debugPrint('File does not exist');
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error capturing image: $e');
+      }
+    } finally {
+      setState(() {
+        _isCapturing = false;
+      });
     }
   }
 
-  /// Updates the current position by retrieving the latitude, longitude, location name,
-  /// and subLocation based on the user's device location. Updates the corresponding
-  /// state variables with the retrieved data.
-  /// Throws an exception if there is an error retrieving the location information.
+  /// Adds location data overlay to the captured image
+  Future<String> _addLocationOverlay(String imagePath) async {
+    try {
+      // Read the original image
+      final File imageFile = File(imagePath);
+      final Uint8List imageBytes = await imageFile.readAsBytes();
+      
+      // Decode the image
+      final ui.Codec codec = await ui.instantiateImageCodec(imageBytes);
+      final ui.FrameInfo frameInfo = await codec.getNextFrame();
+      final ui.Image originalImage = frameInfo.image;
+      
+      // Create a canvas to draw the overlay
+      final ui.PictureRecorder recorder = ui.PictureRecorder();
+      final Canvas canvas = Canvas(recorder);
+      
+      // Draw the original image
+      canvas.drawImage(originalImage, Offset.zero, Paint());
+      
+      // Prepare location text
+      final String locationText = locationData?.locationName ?? "Location unavailable";
+      final String coordinatesText = "Lat: ${locationData?.latitude ?? "N/A"}, Long: ${locationData?.longitude ?? "N/A"}";
+      final String timeText = dateTime ?? DateFormat.yMd().add_jm().format(DateTime.now());
+      
+      // Create text painter for location
+      final TextPainter locationPainter = TextPainter(
+        text: TextSpan(
+          text: locationText,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            shadows: [
+              Shadow(
+                offset: Offset(2, 2),
+                blurRadius: 4,
+                color: Colors.black,
+              ),
+            ],
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+        maxLines: 2,
+      );
+      locationPainter.layout();
+      
+      // Create text painter for coordinates
+      final TextPainter coordinatesPainter = TextPainter(
+        text: TextSpan(
+          text: coordinatesText,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.w500,
+            shadows: [
+              Shadow(
+                offset: Offset(1, 1),
+                blurRadius: 2,
+                color: Colors.black,
+              ),
+            ],
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      );
+      coordinatesPainter.layout();
+      
+      // Create text painter for time
+      final TextPainter timePainter = TextPainter(
+        text: TextSpan(
+          text: timeText,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+            shadows: [
+              Shadow(
+                offset: Offset(1, 1),
+                blurRadius: 2,
+                color: Colors.black,
+              ),
+            ],
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      );
+      timePainter.layout();
+      
+      // Calculate positions (bottom left with padding)
+      final double padding = 20;
+      final double imageHeight = originalImage.height.toDouble();
+      final double imageWidth = originalImage.width.toDouble();
+      
+      // Draw semi-transparent background for text
+      final Rect backgroundRect = Rect.fromLTWH(
+        padding,
+        imageHeight - padding - locationPainter.height - coordinatesPainter.height - timePainter.height - 20,
+        imageWidth - (padding * 2),
+        locationPainter.height + coordinatesPainter.height + timePainter.height + 20,
+      );
+      
+      canvas.drawRect(
+        backgroundRect,
+        Paint()..color = Colors.black.withValues(alpha: 0.6),
+      );
+      
+      // Draw location text
+      locationPainter.paint(
+        canvas,
+        Offset(padding + 10, imageHeight - padding - locationPainter.height - coordinatesPainter.height - timePainter.height - 15),
+      );
+      
+      // Draw coordinates text
+      coordinatesPainter.paint(
+        canvas,
+        Offset(padding + 10, imageHeight - padding - coordinatesPainter.height - timePainter.height - 10),
+      );
+      
+      // Draw time text
+      timePainter.paint(
+        canvas,
+        Offset(padding + 10, imageHeight - padding - timePainter.height - 5),
+      );
+      
+      // Convert to image
+      final ui.Picture picture = recorder.endRecording();
+      final ui.Image finalImage = await picture.toImage(
+        originalImage.width,
+        originalImage.height,
+      );
+      
+      // Convert to bytes
+      final ByteData? byteData = await finalImage.toByteData(format: ui.ImageByteFormat.png);
+      final Uint8List pngBytes = byteData!.buffer.asUint8List();
+      
+      // Save to new file
+      final Directory appDir = await getApplicationDocumentsDirectory();
+      final String fileName = 'captured_${DateTime.now().millisecondsSinceEpoch}.png';
+      final String newPath = '${appDir.path}/$fileName';
+      
+      final File newFile = File(newPath);
+      await newFile.writeAsBytes(pngBytes);
+      
+      // Clean up original file
+      await imageFile.delete();
+      
+      return newPath;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error adding overlay: $e');
+      }
+      // Return original path if overlay fails
+      return imagePath;
+    }
+  }
+
+  /// Updates the current position by retrieving location information
   Future<void> updatePosition(BuildContext context) async {
     try {
-      // Determine the current position
       final position = await _determinePosition();
+      final placeMarks = await placemarkFromCoordinates(position.latitude, position.longitude);
 
-      // Retrieve the placeMarks for the current position
-      final placeMarks =
-          await placemarkFromCoordinates(position.latitude, position.longitude);
-
-      LocationData locationData;
+      LocationData newLocationData;
       if (placeMarks.isNotEmpty) {
         final placeMark = placeMarks.first;
-
-        locationData = LocationData(
-            latitude: position.latitude.toString(),
-            longitude: position.longitude.toString(),
-            locationName:
-                "${placeMark.locality ?? ""}, ${placeMark.administrativeArea ?? ""}, ${placeMark.country ?? ""}",
-            subLocation:
-                "${placeMark.street ?? ""}, ${placeMark.thoroughfare ?? ""} ${placeMark.administrativeArea ?? ""}");
+        newLocationData = LocationData(
+          latitude: position.latitude.toString(),
+          longitude: position.longitude.toString(),
+          locationName: "${placeMark.locality ?? ""}, ${placeMark.administrativeArea ?? ""}, ${placeMark.country ?? ""}",
+          subLocation: "${placeMark.street ?? ""}, ${placeMark.thoroughfare ?? ""} ${placeMark.administrativeArea ?? ""}",
+        );
       } else {
-        locationData = LocationData(
-            longitude: null,
-            latitude: null,
-            locationName: 'No Location Data',
-            subLocation: "");
+        newLocationData = LocationData(
+          longitude: null,
+          latitude: null,
+          locationName: 'No Location Data',
+          subLocation: "",
+        );
       }
-      if (locationData != this.locationData) {
-        // Update the state variables with the retrieved location data
+
+      if (newLocationData != locationData) {
         setState(() {
-          this.locationData = locationData;
+          locationData = newLocationData;
         });
       }
 
       if (kDebugMode) {
-        print(
-            "Latitude: ${locationData.latitude}, Longitude: ${locationData.longitude}, Location: ${locationData.locationName}");
+        print("Latitude: ${locationData?.latitude}, Longitude: ${locationData?.longitude}, Location: ${locationData?.locationName}");
       }
     } catch (e) {
-      // Handle any errors that occurred during location retrieval
       setState(() {
         locationData = LocationData(
-            longitude: null,
-            latitude: null,
-            locationName: 'Error Retrieving Location',
-            subLocation: "");
+          longitude: null,
+          latitude: null,
+          locationName: 'Error Retrieving Location',
+          subLocation: "",
+        );
       });
     }
   }
 
-  /// Determines the current position using the GeoLocator package.
-  /// Returns the current position as a [Position] object.
-  /// Throws an exception if there is an error determining the position or if the necessary permissions are not granted.
+  /// Determines the current position using the GeoLocator package
   Future<Position> _determinePosition() async {
     bool serviceEnabled;
     LocationPermission permission;
 
-    // Check if location services are enabled
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      // If location services are disabled, throw an exception
       throw Exception('Location services are disabled.');
     }
-    // Check location permission
+
     permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
-      // If location permission is denied, request it
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
-        // If location permission is still denied, throw an exception
         throw Exception('Location permissions are denied');
       }
     }
 
-    // Check if location permission is permanently denied
     if (permission == LocationPermission.deniedForever) {
-      // Throw an exception if location permission is permanently denied
-      throw Exception(
-          'Location permissions are permanently denied, we cannot request permissions.');
+      throw Exception('Location permissions are permanently denied, we cannot request permissions.');
     }
 
-    // Get the current position
     return await Geolocator.getCurrentPosition();
   }
 }

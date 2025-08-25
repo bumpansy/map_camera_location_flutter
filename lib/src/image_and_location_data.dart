@@ -14,19 +14,15 @@ class ImageAndLocationData {
 
 class LocationData {
   /// Latitude value of the current location as a string.
-
   final String? latitude;
 
   /// Longitude value of the current location as a string.
-
   final String? longitude;
 
   /// Name of the current location as a string.
-
   final String? locationName;
 
   /// SubLocation of the current location as a string.
-
   final String? subLocation;
 
   LocationData({
