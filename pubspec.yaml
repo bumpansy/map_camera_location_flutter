@@ -1,6 +1,6 @@
 name: map_camera_flutter
-description: The Map Camera flutter package provides a convenient way to capture high-quality images with location data using the device's camera.
-version: 1.0.0
+description: The Map Camera flutter package provides a convenient way to capture high-quality images with location data using the device's camera. This is version 2.0.0 with improved image quality and text overlay functionality.
+version: 2.0.0
 homepage: https://github.com/Always-Bijoy/map_camera_location_flutter
 
 environment:
