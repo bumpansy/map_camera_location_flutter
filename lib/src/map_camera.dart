@@ -43,6 +43,15 @@ class _MapCameraLocationState extends State<MapCameraLocation> {
 
   Timer? _positionTimer;
 
+  // Flash state
+  FlashMode _flashMode = FlashMode.off;
+  final List<FlashMode> _flashModesCycle = [
+    FlashMode.off,
+    FlashMode.auto,
+    FlashMode.always,
+    FlashMode.torch,
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -60,7 +69,18 @@ class _MapCameraLocationState extends State<MapCameraLocation> {
       ResolutionPreset.high, // Use high resolution for better quality
       enableAudio: false, // Disable audio for faster processing
     );
-    _initializeControllerFuture = _controller.initialize();
+    _initializeControllerFuture = _controller.initialize().then((_) {
+      // After initialization, read the controller's flash mode if available
+      if (mounted) {
+        try {
+          setState(() {
+            _flashMode = _controller.value.flashMode;
+          });
+        } catch (_) {
+          // ignore - some controllers might not expose flash mode
+        }
+      }
+    });
 
     // Get the current date and time in a formatted string
     dateTime = DateFormat.yMd().add_jm().format(DateTime.now());
@@ -84,6 +104,25 @@ class _MapCameraLocationState extends State<MapCameraLocation> {
             return Center(
               child: Stack(
                 children: [
+                  // Flash toggle (top left)
+                  Positioned(
+                    top: 40,
+                    left: 20,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.5),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: IconButton(
+                        onPressed: _cycleFlashMode,
+                        icon: Icon(
+                          _iconForFlashMode(_flashMode),
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                  
                   // Camera preview
                   CameraPreview(_controller),
                   
@@ -185,6 +224,39 @@ class _MapCameraLocationState extends State<MapCameraLocation> {
     );
   }
 
+  IconData _iconForFlashMode(FlashMode mode) {
+    switch (mode) {
+      case FlashMode.auto:
+        return Icons.flash_auto;
+      case FlashMode.always:
+        return Icons.flash_on;
+      case FlashMode.torch:
+        return Icons.highlight;
+      case FlashMode.off:
+      default:
+        return Icons.flash_off;
+    }
+  }
+  
+  void _cycleFlashMode() {
+    final current = _flashModesCycle.indexOf(_flashMode);
+    final next = _flashModesCycle[(current + 1) % _flashModesCycle.length];
+    _setFlashMode(next);
+  }
+  
+  Future<void> _setFlashMode(FlashMode mode) async {
+    try {
+      await _controller.setFlashMode(mode);
+      if (mounted) {
+        setState(() {
+          _flashMode = mode;
+        });
+      }
+    } catch (e) {
+      if (kDebugMode) print('Flash mode not supported or failed: $e');
+    }
+  }
+
   /// Captures a high-quality image and overlays location data
   Future<void> _captureImage() async {
     if (_isCapturing) return;
@@ -194,6 +266,11 @@ class _MapCameraLocationState extends State<MapCameraLocation> {
     });
 
     try {
+      // Ensure controller has the desired flash mode before taking picture
+      try {
+        await _controller.setFlashMode(_flashMode);
+      } catch (_) {}
+      
       // Capture the image
       final XFile image = await _controller.takePicture();
       
