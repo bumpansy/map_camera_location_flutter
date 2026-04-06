@@ -80,6 +80,16 @@ class _MapCameraLocationState extends State<MapCameraLocation> {
     dateTime = DateFormat.yMd().add_jm().format(DateTime.now());
   }
 
+  String _formatFileSize(int bytes) {
+    if (bytes < 1024) return "$bytes B";
+
+    final double kb = bytes / 1024;
+    if (kb < 1024) return "${kb.toStringAsFixed(1)} KB";
+
+    final double mb = kb / 1024;
+    return "${mb.toStringAsFixed(2)} MB";
+  }
+
   @override
   void dispose() {
     _controller.dispose();
@@ -287,76 +297,141 @@ class _MapCameraLocationState extends State<MapCameraLocation> {
   /// 🔥 FIXED OVERLAY (correct size)
   Future<String> _addLocationOverlay(String imagePath) async {
     final imageFile = File(imagePath);
-    final bytes = await imageFile.readAsBytes();
+    final imageBytes = await imageFile.readAsBytes();
 
-    final codec = await ui.instantiateImageCodec(bytes);
+    final codec = await ui.instantiateImageCodec(imageBytes);
     final frame = await codec.getNextFrame();
-    final img = frame.image;
+    final originalImage = frame.image;
 
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
 
-    canvas.drawImage(img, Offset.zero, Paint());
+    // Draw original image
+    canvas.drawImage(originalImage, Offset.zero, Paint());
 
-    final text = TextPainter(
-      text: TextSpan(
-        text:
-            "${locationData?.locationName ?? ""}\n${dateTime ?? ""}",
-        style: const TextStyle(color: Colors.white, fontSize: 20),
-      ),
-      textDirection: TextDirection.ltr,
+    final double padding = 20;
+    final double imageHeight = originalImage.height.toDouble();
+    final double imageWidth = originalImage.width.toDouble();
+
+    // ===== TEXT CONTENT =====
+    final locationText = locationData?.locationName ?? "Unknown Location";
+    final coordText =
+        "Lat: ${locationData?.latitude ?? "N/A"}, Lng: ${locationData?.longitude ?? "N/A"}";
+    final timeText = dateTime ?? DateFormat.yMd().add_jm().format(DateTime.now());
+
+    // TEMP values (we will update size later)
+    final resolutionText =
+        "Resolution: ${originalImage.width}x${originalImage.height}";
+    final sizeTextPlaceholder = "Size: Calculating...";
+
+    // ===== TEXT STYLE =====
+    TextStyle style(double size) => TextStyle(
+          color: Colors.white,
+          fontSize: size,
+          fontWeight: FontWeight.w500,
+          shadows: const [
+            Shadow(offset: Offset(1, 1), blurRadius: 2, color: Colors.black),
+          ],
+        );
+
+    // ===== CREATE TEXT PAINTERS =====
+    TextPainter buildPainter(String text, double size) {
+      final tp = TextPainter(
+        text: TextSpan(text: text, style: style(size)),
+        textDirection: TextDirection.ltr,
+      );
+      tp.layout(maxWidth: imageWidth - 40);
+      return tp;
+    }
+
+    final tpLocation = buildPainter(locationText, 22);
+    final tpCoords = buildPainter(coordText, 18);
+    final tpTime = buildPainter(timeText, 16);
+    final tpRes = buildPainter(resolutionText, 16);
+    final tpSize = buildPainter(sizeTextPlaceholder, 16);
+
+    final totalHeight = tpLocation.height +
+        tpCoords.height +
+        tpTime.height +
+        tpRes.height +
+        tpSize.height +
+        40;
+
+    final backgroundRect = Rect.fromLTWH(
+      padding,
+      imageHeight - totalHeight - padding,
+      imageWidth - (padding * 2),
+      totalHeight,
     );
 
-    text.layout();
-    text.paint(canvas, const Offset(20, 20));
+    // Background box
+    canvas.drawRect(
+      backgroundRect,
+      Paint()..color = Colors.black.withOpacity(0.6),
+    );
 
+    double yOffset = backgroundRect.top + 10;
+
+    tpLocation.paint(canvas, Offset(padding + 10, yOffset));
+    yOffset += tpLocation.height;
+
+    tpCoords.paint(canvas, Offset(padding + 10, yOffset));
+    yOffset += tpCoords.height;
+
+    tpTime.paint(canvas, Offset(padding + 10, yOffset));
+    yOffset += tpTime.height;
+
+    tpRes.paint(canvas, Offset(padding + 10, yOffset));
+    yOffset += tpRes.height;
+
+    tpSize.paint(canvas, Offset(padding + 10, yOffset));
+
+    // ===== FINAL IMAGE =====
     final picture = recorder.endRecording();
     final finalImage =
-        await picture.toImage(img.width, img.height);
+        await picture.toImage(originalImage.width, originalImage.height);
 
     final byteData =
         await finalImage.toByteData(format: ui.ImageByteFormat.png);
     final pngBytes = byteData!.buffer.asUint8List();
 
+    // ✅ NOW compute ACTUAL SIZE
+    final finalSizeText =
+        "Size: ${_formatFileSize(pngBytes.length)}";
+
+    // ===== REDRAW WITH CORRECT SIZE =====
+    final recorder2 = ui.PictureRecorder();
+    final canvas2 = Canvas(recorder2);
+
+    canvas2.drawImage(finalImage, Offset.zero, Paint());
+
+    final tpFinalSize = buildPainter(finalSizeText, 16);
+
+    tpFinalSize.paint(
+      canvas2,
+      Offset(
+        padding + 10,
+        backgroundRect.bottom - tpFinalSize.height - 10,
+      ),
+    );
+
+    final picture2 = recorder2.endRecording();
+    final finalImage2 =
+        await picture2.toImage(originalImage.width, originalImage.height);
+
+    final byteData2 =
+        await finalImage2.toByteData(format: ui.ImageByteFormat.png);
+    final finalBytes = byteData2!.buffer.asUint8List();
+
     final dir = await getApplicationDocumentsDirectory();
     final path =
-        "${dir.path}/img_${DateTime.now().millisecondsSinceEpoch}.png";
+        "${dir.path}/captured_${DateTime.now().millisecondsSinceEpoch}.png";
 
     final file = File(path);
-    await file.writeAsBytes(pngBytes);
+    await file.writeAsBytes(finalBytes);
 
     await imageFile.delete();
 
     return path;
-  }
-
-  Future<void> updatePosition(BuildContext context) async {
-    final pos = await _determinePosition();
-    final places =
-        await placemarkFromCoordinates(pos.latitude, pos.longitude);
-
-    final place = places.first;
-
-    setState(() {
-      locationData = LocationData(
-        latitude: pos.latitude.toString(),
-        longitude: pos.longitude.toString(),
-        locationName:
-            "${place.locality}, ${place.administrativeArea}",
-        subLocation: place.street ?? "",
-      );
-    });
-  }
-
-  Future<Position> _determinePosition() async {
-    return await Geolocator.getCurrentPosition();
-  }
-
-  String _formatFileSize(int bytes) {
-    if (bytes < 1024) return "$bytes B";
-    final kb = bytes / 1024;
-    if (kb < 1024) return "${kb.toStringAsFixed(1)} KB";
-    final mb = kb / 1024;
-    return "${mb.toStringAsFixed(2)} MB";
   }
 }
