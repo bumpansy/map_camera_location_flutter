@@ -115,25 +115,47 @@ class _MapCameraLocationState extends State<MapCameraLocation> {
                   top: 40,
                   right: 20,
                   child: Container(
+                    key: ValueKey("${_capturedImageResolution}_${_capturedImageSize}"),
                     padding: const EdgeInsets.all(12),
-                    color: Colors.black.withOpacity(0.7),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.7),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.white, width: 1),
+                    ),
                     child: Column(
+                      mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(locationData?.locationName ?? "Loading...",
-                            style: const TextStyle(color: Colors.white)),
-                        Text("Lat: ${locationData?.latitude ?? "..."}",
-                            style: const TextStyle(color: Colors.white)),
-                        Text("Lng: ${locationData?.longitude ?? "..."}",
-                            style: const TextStyle(color: Colors.white)),
-                        Text(dateTime ?? "",
-                            style: const TextStyle(color: Colors.white)),
+                        Text(
+                          "DEBUG TEXT",
+                          style: TextStyle(color: Colors.red),
+                        ),
 
-                        /// ALWAYS SHOW
+                        Text(
+                          locationData?.locationName ?? "Loading...",
+                          style: const TextStyle(color: Colors.white),
+                        ),
+
+                        Text(
+                          "Lat: ${locationData?.latitude ?? "..."}",
+                          style: const TextStyle(color: Colors.white),
+                        ),
+
+                        Text(
+                          "Lng: ${locationData?.longitude ?? "..."}",
+                          style: const TextStyle(color: Colors.white),
+                        ),
+
+                        Text(
+                          dateTime ?? "",
+                          style: const TextStyle(color: Colors.white),
+                        ),
+
                         Text(
                           "Res: ${_capturedImageResolution ?? '---'}",
                           style: const TextStyle(color: Colors.white),
                         ),
+
                         Text(
                           "Size: ${_capturedImageSize ?? '---'}",
                           style: const TextStyle(color: Colors.white),
