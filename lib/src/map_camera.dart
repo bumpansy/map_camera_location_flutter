@@ -39,6 +39,8 @@ class _MapCameraLocationState extends State<MapCameraLocation> {
   File? cameraImagePath;
   String? dateTime;
   LocationData? locationData;
+  String? _capturedImageResolution;
+  String? _capturedImageSize;
   bool _isCapturing = false;
 
   Timer? _positionTimer;
@@ -172,6 +174,22 @@ class _MapCameraLocationState extends State<MapCameraLocation> {
                               fontSize: 12
                             ),
                           ),
+                          if (_capturedImageResolution != null)
+                            Text(
+                              "Res: $_capturedImageResolution",
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                              ),
+                            ),
+                          if (_capturedImageSize != null)
+                            Text(
+                              "Size: $_capturedImageSize",
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                              ),
+                            ),
                         ],
                       ),
                     ),
@@ -233,7 +251,6 @@ class _MapCameraLocationState extends State<MapCameraLocation> {
       case FlashMode.torch:
         return Icons.highlight;
       case FlashMode.off:
-      default:
         return Icons.flash_off;
     }
   }
@@ -277,10 +294,19 @@ class _MapCameraLocationState extends State<MapCameraLocation> {
       if (image.path.isNotEmpty) {
         // Process the image with location overlay
         final String processedImagePath = await _addLocationOverlay(image.path);
+        final File processedFile = File(processedImagePath);
+        final Uint8List processedBytes = await processedFile.readAsBytes();
+        final ui.Codec processedCodec = await ui.instantiateImageCodec(processedBytes);
+        final ui.FrameInfo processedFrameInfo = await processedCodec.getNextFrame();
+        final String imageResolution =
+            "${processedFrameInfo.image.width}x${processedFrameInfo.image.height}";
+        final String imageSize = _formatFileSize(await processedFile.length());
         
         // Update state
         setState(() {
           cameraImagePath = File(processedImagePath);
+          _capturedImageResolution = imageResolution;
+          _capturedImageSize = imageSize;
         });
 
         // Trigger callback
@@ -326,6 +352,8 @@ class _MapCameraLocationState extends State<MapCameraLocation> {
       final String locationText = locationData?.locationName ?? "Location unavailable";
       final String coordinatesText = "Lat: ${locationData?.latitude ?? "N/A"}, Long: ${locationData?.longitude ?? "N/A"}";
       final String timeText = dateTime ?? DateFormat.yMd().add_jm().format(DateTime.now());
+      final String resolutionText = "Resolution: ${originalImage.width}x${originalImage.height}";
+      final String imageSizeText = "Size: ${_formatFileSize(imageBytes.length)}";
       
       // Create text painter for location
       final TextPainter locationPainter = TextPainter(
@@ -390,6 +418,48 @@ class _MapCameraLocationState extends State<MapCameraLocation> {
         textDirection: TextDirection.ltr,
       );
       timePainter.layout();
+
+      // Create text painter for image resolution
+      final TextPainter resolutionPainter = TextPainter(
+        text: TextSpan(
+          text: resolutionText,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+            shadows: [
+              Shadow(
+                offset: Offset(1, 1),
+                blurRadius: 2,
+                color: Colors.black,
+              ),
+            ],
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      );
+      resolutionPainter.layout();
+
+      // Create text painter for image size
+      final TextPainter imageSizePainter = TextPainter(
+        text: TextSpan(
+          text: imageSizeText,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+            shadows: [
+              Shadow(
+                offset: Offset(1, 1),
+                blurRadius: 2,
+                color: Colors.black,
+              ),
+            ],
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      );
+      imageSizePainter.layout();
       
       // Calculate positions (bottom left with padding)
       final double padding = 20;
@@ -399,9 +469,21 @@ class _MapCameraLocationState extends State<MapCameraLocation> {
       // Draw semi-transparent background for text
       final Rect backgroundRect = Rect.fromLTWH(
         padding,
-        imageHeight - padding - locationPainter.height - coordinatesPainter.height - timePainter.height - 20,
+        imageHeight -
+            padding -
+            locationPainter.height -
+            coordinatesPainter.height -
+            timePainter.height -
+            resolutionPainter.height -
+            imageSizePainter.height -
+            30,
         imageWidth - (padding * 2),
-        locationPainter.height + coordinatesPainter.height + timePainter.height + 20,
+        locationPainter.height +
+            coordinatesPainter.height +
+            timePainter.height +
+            resolutionPainter.height +
+            imageSizePainter.height +
+            30,
       );
       
       canvas.drawRect(
@@ -412,19 +494,64 @@ class _MapCameraLocationState extends State<MapCameraLocation> {
       // Draw location text
       locationPainter.paint(
         canvas,
-        Offset(padding + 10, imageHeight - padding - locationPainter.height - coordinatesPainter.height - timePainter.height - 15),
+        Offset(
+          padding + 10,
+          imageHeight -
+              padding -
+              locationPainter.height -
+              coordinatesPainter.height -
+              timePainter.height -
+              resolutionPainter.height -
+              imageSizePainter.height -
+              25,
+        ),
       );
       
       // Draw coordinates text
       coordinatesPainter.paint(
         canvas,
-        Offset(padding + 10, imageHeight - padding - coordinatesPainter.height - timePainter.height - 10),
+        Offset(
+          padding + 10,
+          imageHeight -
+              padding -
+              coordinatesPainter.height -
+              timePainter.height -
+              resolutionPainter.height -
+              imageSizePainter.height -
+              20,
+        ),
       );
       
       // Draw time text
       timePainter.paint(
         canvas,
-        Offset(padding + 10, imageHeight - padding - timePainter.height - 5),
+        Offset(
+          padding + 10,
+          imageHeight -
+              padding -
+              timePainter.height -
+              resolutionPainter.height -
+              imageSizePainter.height -
+              15,
+        ),
+      );
+
+      // Draw resolution text
+      resolutionPainter.paint(
+        canvas,
+        Offset(
+          padding + 10,
+          imageHeight - padding - resolutionPainter.height - imageSizePainter.height - 10,
+        ),
+      );
+
+      // Draw image size text
+      imageSizePainter.paint(
+        canvas,
+        Offset(
+          padding + 10,
+          imageHeight - padding - imageSizePainter.height - 5,
+        ),
       );
       
       // Convert to image
@@ -527,5 +654,13 @@ class _MapCameraLocationState extends State<MapCameraLocation> {
     }
 
     return await Geolocator.getCurrentPosition();
+  }
+
+  String _formatFileSize(int bytes) {
+    if (bytes < 1024) return "$bytes B";
+    final double kb = bytes / 1024;
+    if (kb < 1024) return "${kb.toStringAsFixed(1)} KB";
+    final double mb = kb / 1024;
+    return "${mb.toStringAsFixed(2)} MB";
   }
 }
